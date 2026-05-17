@@ -1,6 +1,6 @@
 {
   "name": "@delosis/otel-bootstrap",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Delosis-standard OpenTelemetry bootstrap for Azure Functions (Node.js v4). Auto-instruments @azure/cosmos, outbound HTTP(S), and other Node libraries; exports traces via OTLP to the Tempo endpoint configured via OTEL_EXPORTER_OTLP_TRACES_ENDPOINT (or generic OTEL_EXPORTER_OTLP_ENDPOINT). Designed to be required exactly once from src/index.js before any function code loads.",
   "main": "index.js",
   "license": "MIT",
@@ -18,7 +18,7 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
     "@opentelemetry/instrumentation": "^0.218.0",
     "@opentelemetry/instrumentation-http": "^0.218.0",
-    "@opentelemetry/instrumentation-undici": "^0.218.0",
+    "@opentelemetry/instrumentation-undici": "^0.28.0",
     "@opentelemetry/resources": "^2.0.0",
     "@opentelemetry/sdk-trace-node": "^2.0.0"
   }
