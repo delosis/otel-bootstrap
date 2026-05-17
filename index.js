@@ -15,6 +15,8 @@
 // Function App. See the Delosis OTel rollout workbook in Hexis memory for
 // the full list.
 
+const _bootstrapStart = process.hrtime.bigint();
+
 const { AzureFunctionsInstrumentation } = require("@azure/functions-opentelemetry-instrumentation");
 const { createAzureSdkInstrumentation } = require("@azure/opentelemetry-instrumentation-azure-sdk");
 const { getNodeAutoInstrumentations, getResourceDetectors } = require("@opentelemetry/auto-instrumentations-node");
@@ -43,3 +45,14 @@ registerInstrumentations({
     new AzureFunctionsInstrumentation(),
   ],
 });
+
+// Self-timing — logged to stdout, captured by the Functions host and
+// shipped to Loki (look for log lines tagged scope_name="@delosis/otel-bootstrap").
+// This is the bootstrap's own load + register cost; useful for spotting whether
+// OTel itself is responsible for slow cold starts vs. legitimate Azure work.
+const _bootstrapMs = Number(process.hrtime.bigint() - _bootstrapStart) / 1e6;
+console.log(
+  `[@delosis/otel-bootstrap] initialized in ${_bootstrapMs.toFixed(1)}ms ` +
+    `(service.name=${process.env.OTEL_SERVICE_NAME || "?"}, ` +
+    `node=${process.version}, pid=${process.pid})`
+);
