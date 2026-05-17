@@ -12,22 +12,23 @@
 // worker would produce double log records in Loki.
 //
 // All config is environment-driven via standard OTEL_* variables set on the
-// Function App. See the Delosis OTel rollout workbook memory for the full
-// list (signal-specific log endpoint, generic trace endpoint, basic-auth
-// header with W3C-Baggage percent-encoding, etc.).
+// Function App. See the Delosis OTel rollout workbook in Hexis memory for
+// the full list.
 
 const { AzureFunctionsInstrumentation } = require("@azure/functions-opentelemetry-instrumentation");
 const { createAzureSdkInstrumentation } = require("@azure/opentelemetry-instrumentation-azure-sdk");
 const { getNodeAutoInstrumentations, getResourceDetectors } = require("@opentelemetry/auto-instrumentations-node");
 const { OTLPTraceExporter } = require("@opentelemetry/exporter-trace-otlp-http");
 const { registerInstrumentations } = require("@opentelemetry/instrumentation");
-const { detectResourcesSync } = require("@opentelemetry/resources");
+const { detectResources } = require("@opentelemetry/resources");
 const { NodeTracerProvider, BatchSpanProcessor } = require("@opentelemetry/sdk-trace-node");
 
-const resource = detectResourcesSync({ detectors: getResourceDetectors() });
+const resource = detectResources({ detectors: getResourceDetectors() });
 
-const tracerProvider = new NodeTracerProvider({ resource });
-tracerProvider.addSpanProcessor(new BatchSpanProcessor(new OTLPTraceExporter()));
+const tracerProvider = new NodeTracerProvider({
+  resource,
+  spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+});
 tracerProvider.register();
 
 registerInstrumentations({
