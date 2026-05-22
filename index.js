@@ -1,9 +1,12 @@
 // @delosis/otel-bootstrap
 //
 // Required exactly once from a Function App's src/index.js BEFORE any function
-// code loads. Sets up a NodeTracerProvider with the OTLP HTTP trace exporter,
-// then registers a MINIMAL set of auto-instrumentations covering only what
-// Delosis Azure Functions actually use.
+// code loads. Sets up:
+//
+//   - a NodeTracerProvider with the OTLP HTTP trace exporter
+//   - a LoggerProvider with the OTLP HTTP log exporter
+//   - a MINIMAL set of auto-instrumentations covering only what Delosis Azure
+//     Functions actually use
 //
 // Why minimal: the upstream @opentelemetry/auto-instrumentations-node pulls in
 // ~40 instrumentations covering every Node ecosystem (express, mongoose, kafka,
@@ -14,16 +17,31 @@
 //                  Entra, Graph, any direct fetch/https request
 //   - undici     : modern fetch on Node 18+ — Azure SDK uses this
 //   - @azure/sdk : semantic spans for Cosmos / Storage / Identity SDK calls
-//   - @azure/functions : worker-side function invocation correlation
+//   - @azure/functions : worker-side function invocation correlation AND
+//                        worker-side log emission (see below)
 //
 // Add more here only if a real use case appears. Don't reintroduce
 // auto-instrumentations-node "just in case" — the cold-start cost is real
 // and measurable.
 //
-// Logs are intentionally NOT bootstrapped here — the Functions host already
-// captures worker stdout (context.log) and ships it via its own OTLP logs
-// exporter when telemetryMode=OpenTelemetry. Duplicating the path from the
-// worker would produce double log records in Loki.
+// Why we MUST bootstrap a LoggerProvider here:
+//
+//   AzureFunctionsInstrumentation._patch() sets the host capability
+//   WorkerOpenTelemetryEnabled=true, which tells the .NET Functions host to
+//   STOP emitting Function.<name>.User ILogger entries itself. In exchange,
+//   the instrumentation subscribes to azFunc.app.hook.log and forwards every
+//   context.log call to api-logs' global Logger via `this.logger.emit(...)`.
+//
+//   If no LoggerProvider is registered, the global default is NoopLogger and
+//   emit() silently discards everything. Combined with the host now staying
+//   quiet, the net effect is that every context.log call falls into a black
+//   hole — invisible in App Insights AND Loki. (See LESSONS.md.)
+//
+//   Pin sdk-logs / api-logs / exporter-logs-otlp-http to ^0.209.0 — the
+//   same minor that @azure/functions-opentelemetry-instrumentation@0.3.0
+//   uses for api-logs. Otherwise npm hoists two different api-logs versions,
+//   each with its own version-scoped global, and our provider is invisible
+//   to the instrumentation. We learned this the hard way.
 //
 // All config is environment-driven via standard OTEL_* variables set on the
 // Function App. See the Delosis OTel rollout workbook in Hexis memory for
@@ -36,9 +54,12 @@ const { createAzureSdkInstrumentation } = require("@azure/opentelemetry-instrume
 const { HttpInstrumentation } = require("@opentelemetry/instrumentation-http");
 const { UndiciInstrumentation } = require("@opentelemetry/instrumentation-undici");
 const { OTLPTraceExporter } = require("@opentelemetry/exporter-trace-otlp-http");
+const { OTLPLogExporter } = require("@opentelemetry/exporter-logs-otlp-http");
 const { registerInstrumentations } = require("@opentelemetry/instrumentation");
 const { detectResources, envDetector, processDetector } = require("@opentelemetry/resources");
 const { NodeTracerProvider, BatchSpanProcessor } = require("@opentelemetry/sdk-trace-node");
+const { LoggerProvider, BatchLogRecordProcessor } = require("@opentelemetry/sdk-logs");
+const { logs } = require("@opentelemetry/api-logs");
 
 // Detect resources from env (picks up OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES)
 // and process info (pid, runtime version). Skip the heavier auto-detectors that
@@ -50,6 +71,12 @@ const tracerProvider = new NodeTracerProvider({
   spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
 });
 tracerProvider.register();
+
+const loggerProvider = new LoggerProvider({
+  resource,
+  processors: [new BatchLogRecordProcessor(new OTLPLogExporter())],
+});
+logs.setGlobalLoggerProvider(loggerProvider);
 
 registerInstrumentations({
   tracerProvider,
