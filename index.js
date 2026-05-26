@@ -60,6 +60,12 @@ const { detectResources, envDetector, processDetector } = require("@opentelemetr
 const { NodeTracerProvider, BatchSpanProcessor } = require("@opentelemetry/sdk-trace-node");
 const { LoggerProvider, BatchLogRecordProcessor } = require("@opentelemetry/sdk-logs");
 const { logs } = require("@opentelemetry/api-logs");
+const { SpanStatusCode } = require("@opentelemetry/api");
+
+// Cosmos-host hostname pattern. @azure/cosmos v4 issues HTTP requests
+// against {account}.documents.azure.com (and {account}-{region}.documents.azure.com
+// for multi-region accounts). Both shapes end in .documents.azure.com.
+const COSMOS_HOST_RE = /\.documents\.azure\.com$/i;
 
 // Detect resources from env (picks up OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES)
 // and process info (pid, runtime version). Skip the heavier auto-detectors that
@@ -81,7 +87,37 @@ logs.setGlobalLoggerProvider(loggerProvider);
 registerInstrumentations({
   tracerProvider,
   instrumentations: [
-    new HttpInstrumentation(),
+    new HttpInstrumentation({
+      // Cosmos SDK control-flow noise suppression.
+      //
+      // @azure/cosmos v4 uses its own diagnostics layer rather than
+      // @azure/core-tracing, so createAzureSdkInstrumentation() above does
+      // NOT intercept Cosmos calls — only the raw HTTP layer sees them.
+      //
+      // Cross-partition queries (ORDER BY, fan-out reads, paginated
+      // continuations) routinely receive 4xx responses from individual
+      // partitions as part of normal SDK control flow — partition map
+      // staleness, empty-partition rejections, continuation-token
+      // refreshes. The SDK absorbs these and retries silently; the app
+      // never sees them. But @opentelemetry/instrumentation-http marks
+      // every >=400 response as ERROR span status by default, which then
+      // inflates spanmetrics err% for Cosmos POSTs to ~25–30% on healthy
+      // services. Documented in LESSONS.md ("400s mid-query") as known.
+      //
+      // Downgrade to OK only for 4xx from a Cosmos host. 5xx is left
+      // ERROR — those WOULD indicate real Cosmos service issues we
+      // want surfaced.
+      applyCustomAttributesOnSpan: (span, request, response) => {
+        if (!response || typeof response.statusCode !== "number") return;
+        if (response.statusCode < 400 || response.statusCode >= 500) return;
+        const host = String(
+          request.host || (request.getHeader && request.getHeader("host")) || ""
+        ).split(":")[0];
+        if (COSMOS_HOST_RE.test(host)) {
+          span.setStatus({ code: SpanStatusCode.OK });
+        }
+      },
+    }),
     new UndiciInstrumentation(),
     createAzureSdkInstrumentation(),
     new AzureFunctionsInstrumentation(),

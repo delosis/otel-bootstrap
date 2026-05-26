@@ -1,6 +1,6 @@
 {
   "name": "@delosis/otel-bootstrap",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Delosis-standard OpenTelemetry bootstrap for Azure Functions (Node.js v4). Auto-instruments @azure/cosmos, outbound HTTP(S), and other Node libraries; exports traces and logs via OTLP. Designed to be required exactly once from src/index.js before any function code loads.",
   "main": "index.js",
   "license": "MIT",
