@@ -1,0 +1,5 @@
+# Single project — pnpm settings only. Consumers install this via git ref and
+# read package.json deps, NOT this file, so these settings are dev-local.
+nodeLinker: hoisted
+minimumReleaseAge: 10080
+ignoreScripts: true
