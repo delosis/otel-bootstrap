@@ -132,9 +132,20 @@ Test suites mock `CosmosClient` but don't set the env var. The eager `throw` fir
 
 ### 11. OTel adds cold-start overhead
 
-The OTel bootstrap loads ~190 npm packages and registers monkey-patch hooks across http, https, azure-sdk, etc. Estimated cold-start cost: **500-1000ms per worker spin-up**. Once warm: ~7ms overhead per invocation.
+The OTel bootstrap loads ~190 npm packages and registers monkey-patch hooks across http, https, azure-sdk, etc. Estimated cold-start cost: **500-1000ms per worker spin-up** (confirmed by the self-span in 2026-09; see #13 for the trim). Once warm: ~7ms overhead per invocation.
 
 This is the cost of doing business for the visibility you get. Cold start was always slow (Flex Consumption cost) — OTel adds maybe 25-30% to that, and tools you to see the real cause of the rest.
+
+### 13. Half the bootstrap cost was two Azure packages that did nothing useful (v2.0.0, 2026-09-21)
+
+Measured across the fleet via the `otel-bootstrap` self-span: p50 0.4–0.8 s per cold worker, p99 up to ≥4 s (univenture, Canada Central). Locally the same require chain is ~120 ms, so Azure's zip mount multiplies file-count cost 5–7×.
+
+- `@azure/opentelemetry-instrumentation-azure-sdk` hooks `@azure/core-tracing`, which `@azure/cosmos` v4 does not use. Zero spans produced on any Delosis service in 72 h of Tempo spanmetrics. The comment in `index.js` had said as much since v1.4.0.
+- `@azure/functions-opentelemetry-instrumentation@0.3.0` (Microsoft's latest) depends on `@opentelemetry/instrumentation ^0.52` (mid-2024) and `api-logs ^0.209`, dragging nested duplicates — the mymeds prod tree had **four** `api-logs` versions and **three** `@opentelemetry/instrumentation` versions. That is the split-brain the `^0.209` pin was defending against. Its useful content is `app.setup({capabilities:{WorkerOpenTelemetryEnabled:true}})`, `app.hook.log`, `app.hook.preInvocation` — public `@azure/functions` API — and it creates no spans (the `GET api/<route>` and `init` spans are the .NET host's).
+
+Both removed; hooks inlined; whole chain moved to `0.222` / `2.11`. `@opentelemetry/*` file count 8,408 → 3,866. Gotcha on the way: `sdk-logs` ≥0.222 `BatchLogRecordProcessor` takes `{ exporter }`, not a positional exporter — the positional form constructs fine and then silently drops every record (export throws inside an un-awaited promise). Test with a stub OTLP receiver, not with "did it 200".
+
+What stays untouched by any of this: every host-side line (`Initializing Warmup Extension`, `Host started`, provisioning canaries, timer schedules) comes from the .NET host's own OTel export, driven purely by the `OTEL_*` app settings.
 
 ### 12. The "app appears to be unhealthy" warning is OTel-related
 
