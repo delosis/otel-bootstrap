@@ -147,6 +147,10 @@ Both removed; hooks inlined; whole chain moved to `0.222` / `2.11`. `@openteleme
 
 What stays untouched by any of this: every host-side line (`Initializing Warmup Extension`, `Host started`, provisioning canaries, timer schedules) comes from the .NET host's own OTel export, driven purely by the `OTEL_*` app settings.
 
+### 14. Timer traces that "last 20 minutes" are the Cosmos endpoint refresh (v2.0.1)
+
+A timer function whose server span is 200 ms can show a trace duration of 300 s, 900 s, 1,200 s … in Tempo. Those are 2–4 ms client `GET https://<account>.documents.azure.com/` spans at exact 300 s multiples: `@azure/cosmos` `GlobalEndpointManager` re-reads the account every `300000` ms, and because the module-scope `CosmosClient` armed that interval during an invocation, each refresh inherits that invocation's trace context. Not a timeout, not blocking, nothing to do with `functionTimeout`. v2.0.1 drops those spans via `ignoreOutgoingRequestHook` (documents.azure.com host, path `/`). Read a timer's cost from its server span, never the trace total.
+
 ### 12. The "app appears to be unhealthy" warning is OTel-related
 
 When `func azure functionapp publish` ends with "app appears to be unhealthy", check `az functionapp config appsettings list --query "[?starts_with(name,'OTEL')]"` — if empty AND `host.json` has `telemetryMode: OpenTelemetry`, the OTel SDK is hanging on default localhost:4317. Set the OTLP env vars before deploying.

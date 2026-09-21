@@ -93,6 +93,21 @@ registerInstrumentations({
   tracerProvider,
   instrumentations: [
     new HttpInstrumentation({
+      // Drop the Cosmos SDK's background account-metadata read. @azure/cosmos'
+      // GlobalEndpointManager re-reads GET https://<account>.documents.azure.com/
+      // every 300000 ms. The module-scope client arms that timer during
+      // whichever invocation first uses it, so every refresh inherits that
+      // invocation's trace context and parents under it — a 200 ms timer run
+      // shows as a 20-minute trace, poisoning spanmetrics p99 for timers.
+      // Path "/" on a documents.azure.com host is only ever this read (the
+      // warmup's getDatabaseAccount() is the same call); nothing useful lost.
+      ignoreOutgoingRequestHook: (request) => {
+        const host = String(
+          request.host || request.hostname || (request.getHeader && request.getHeader("host")) || ""
+        ).split(":")[0];
+        const path = String(request.path || "/").split("?")[0];
+        return COSMOS_HOST_RE.test(host) && path === "/";
+      },
       // Cosmos SDK control-flow noise suppression.
       //
       // Cross-partition queries (ORDER BY, fan-out reads, paginated

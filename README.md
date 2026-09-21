@@ -4,6 +4,8 @@ OpenTelemetry bootstrap for Delosis Azure Functions (Node.js v4 programming mode
 
 Sets up the worker-side TracerProvider and LoggerProvider, instruments outbound HTTP(S) and global `fetch` (which is how `@azure/cosmos`, node-fetch, axios and SendGrid traffic is seen), forwards `context.log` to OTLP logs with trace correlation, and joins the worker to the host's trace context. Exports to the endpoint configured via the standard `OTEL_*` environment variables.
 
+**v2.0.1** drops the Cosmos SDK's 5-minute account-metadata refresh spans (`ignoreOutgoingRequestHook`), which were parenting under timer invocations and inflating their trace durations (LESSONS.md #14).
+
 **v2.0.0** dropped `@azure/functions-opentelemetry-instrumentation` and `@azure/opentelemetry-instrumentation-azure-sdk` (see `LESSONS.md` #13): the worker hooks are now ~30 lines in `index.js`, `@azure/functions` is a **peer dependency** (any 4.5+), and every `@opentelemetry/*` package is on one current version set — consumers no longer need `pnpm.overrides` for `api-logs` / `core`. Worker system chatter at debug/information (`Loading entry point file …`, `Worker … received FunctionInvocationRequest`) is no longer forwarded; `category=user` and anything at warning+ still is.
 
 This package exists so every Delosis Function App can opt into the same trace pipeline with one dependency line and a one-line require — no per-app boilerplate, central version control.
